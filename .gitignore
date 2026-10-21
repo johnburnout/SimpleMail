@@ -1,0 +1,7 @@
+/vendor/
+/_to_delete/
+*.zip
+*.tgz
+.DS_Store
+.idea/
+.vscode/

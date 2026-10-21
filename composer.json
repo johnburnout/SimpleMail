@@ -1,0 +1,22 @@
+{
+    "name": "jean/simplemail",
+    "description": "Envoie les e-mails WordPress via un serveur SMTP externe avec Symfony Mailer.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.1",
+        "symfony/mailer": "^6.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "SimpleMail\\": "src/"
+        }
+    },
+    "config": {
+        "platform": {
+            "php": "8.1.0"
+        },
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}
