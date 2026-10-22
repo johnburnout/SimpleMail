@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       SimpleMail
  * Description:       Envoie les e-mails WordPress via un serveur SMTP externe (Symfony Mailer) au lieu de la fonction mail() de PHP.
- * Version:           1.0.0
+ * Version:           1.1.0
  * Requires at least: 5.7
  * Requires PHP:      8.1
  * Author:            Jean Roussie
@@ -12,7 +12,7 @@
 
 defined('ABSPATH') || exit;
 
-define('SIMPLEMAIL_VERSION', '1.0.0');
+define('SIMPLEMAIL_VERSION', '1.1.0');
 define('SIMPLEMAIL_FILE', __FILE__);
 
 // Dépôt GitHub (owner/repo) utilisé pour la vérification des mises à jour.
