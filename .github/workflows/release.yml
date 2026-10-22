@@ -1,0 +1,55 @@
+name: Release
+
+# Déclenché par un tag de version, ex. : git tag v1.2.0 && git push origin v1.2.0
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          tools: composer:v2
+          coverage: none
+
+      - name: Vérifier que la Version du plugin correspond au tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          HEADER_VERSION=$(grep -m1 '^ \* Version:' simplemail.php | sed -E 's/.*Version:\s*//')
+          CONST_VERSION=$(grep -m1 "define('SIMPLEMAIL_VERSION'" simplemail.php | sed -E "s/.*'SIMPLEMAIL_VERSION',\s*'([^']+)'.*/\1/")
+          echo "Tag: $TAG_VERSION / Header: $HEADER_VERSION / Constante: $CONST_VERSION"
+          if [ "$TAG_VERSION" != "$HEADER_VERSION" ] || [ "$TAG_VERSION" != "$CONST_VERSION" ]; then
+            echo "::error::Le tag ($TAG_VERSION) ne correspond pas à la Version déclarée dans simplemail.php (header: $HEADER_VERSION, constante: $CONST_VERSION)."
+            exit 1
+          fi
+
+      - name: Installer les dépendances (prod uniquement)
+        run: composer install --no-dev --optimize-autoloader --no-interaction --no-progress
+
+      - name: Construire le zip de la release
+        run: |
+          mkdir -p build/simplemail
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='build' \
+            --exclude='.gitignore' \
+            --exclude='.DS_Store' \
+            --exclude='_to_delete' \
+            ./ build/simplemail/
+          cd build
+          zip -r ../simplemail.zip simplemail -x '*.DS_Store'
+
+      - name: Publier la release avec le zip en asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: simplemail.zip
+          generate_release_notes: true

@@ -44,6 +44,36 @@ Sans constante, le mot de passe est stocké **chiffré** en base (libsodium, cl�
   (y compris `['nom.pdf' => '/chemin/fichier.pdf']`).
 - L'action `phpmailer_init` n'est **pas** déclenchée (PHPMailer n'est plus utilisé).
 
+## Mises à jour automatiques (GitHub)
+
+Le plugin se branche sur le système natif de mises à jour de WordPress et pointe vers les
+releases GitHub du dépôt (au lieu de wordpress.org) :
+
+- Chaque tag `vX.Y.Z` poussé sur GitHub déclenche `.github/workflows/release.yml`, qui :
+  1. vérifie que le tag correspond à l'en-tête `Version:` et à la constante `SIMPLEMAIL_VERSION`
+     de `simplemail.php` (échoue sinon) ;
+  2. lance `composer install --no-dev --optimize-autoloader` pour inclure `vendor/` ;
+  3. construit `simplemail.zip` et le publie comme asset de la release.
+- Le plugin interroge l'API GitHub (`/releases/latest`, mise en cache 6h) et compare la version
+  disponible à `SIMPLEMAIL_VERSION`. Si elle est plus récente, il apparaît dans
+  **Tableau de bord → Mises à jour**, avec bouton « Mettre à jour maintenant » et détails/changelog.
+- La mise à jour automatique native de WordPress (case à cocher « Mise à jour auto » sur la page
+  Extensions) fonctionne aussi, puisque le plugin alimente le même mécanisme.
+
+Pour publier une nouvelle version :
+
+```bash
+# 1. Mettre à jour simplemail.php : en-tête "Version:" et define('SIMPLEMAIL_VERSION', ...)
+# 2. Committer, puis :
+git tag v1.2.0
+git push origin v1.2.0
+```
+
+Le dépôt cible est `johnburnout/SimpleMail` par défaut (constante `SIMPLEMAIL_GITHUB_REPO`,
+redéfinissable dans `wp-config.php` si le dépôt change ou devient privé — dans ce dernier cas,
+il faudra aussi adapter `GithubUpdater::fetchRelease()` pour authentifier la requête, l'API GitHub
+exigeant un token pour un dépôt privé).
+
 ## Hooks du plugin
 
 - `simplemail_email` (filtre) : modifier l'objet `Symfony\Component\Mime\Email` avant envoi.
@@ -59,5 +89,7 @@ src/Crypto.php          Chiffrement du mot de passe
 src/TransportFactory.php Création du transport SMTP Symfony
 src/WpMailHandler.php   Conversion wp_mail() → Symfony Email et envoi
 src/Admin.php           Page de réglages et e-mail de test
+src/GithubUpdater.php   Vérification/installation des mises à jour via GitHub
+.github/workflows/release.yml  Build + publication du zip sur chaque tag
 uninstall.php           Nettoyage des options à la désinstallation
 ```

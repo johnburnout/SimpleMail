@@ -15,6 +15,11 @@ defined('ABSPATH') || exit;
 define('SIMPLEMAIL_VERSION', '1.0.0');
 define('SIMPLEMAIL_FILE', __FILE__);
 
+// Dépôt GitHub (owner/repo) utilisé pour la vérification des mises à jour.
+if (!defined('SIMPLEMAIL_GITHUB_REPO')) {
+    define('SIMPLEMAIL_GITHUB_REPO', 'johnburnout/SimpleMail');
+}
+
 if (version_compare(PHP_VERSION, '8.1', '<')) {
     add_action('admin_notices', static function (): void {
         echo '<div class="notice notice-error"><p>SimpleMail nécessite PHP 8.1 ou plus.</p></div>';

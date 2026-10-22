@@ -17,6 +17,7 @@ final class Plugin
 
         if (is_admin()) {
             (new Admin($settings))->register();
+            (new GithubUpdater(SIMPLEMAIL_FILE, SIMPLEMAIL_GITHUB_REPO))->register();
         }
 
         if ($settings->isEnabled()) {
