@@ -28,8 +28,11 @@ final class Settings
         'timeout'     => 15,
     ];
 
-    /** Valeurs résolues (constantes appliquées, mot de passe déchiffré) : calculées une fois. */
+    /** Valeurs résolues (constantes appliquées), mot de passe encore chiffré. */
     private ?array $cache = null;
+
+    /** Mot de passe déchiffré, calculé une seule fois quand la clé est disponible. */
+    private ?string $password = null;
 
     public function all(): array
     {
@@ -39,14 +42,22 @@ final class Settings
             foreach (array_keys(self::DEFAULTS) as $key) {
                 if ($this->isConstant($key)) {
                     $values[$key] = constant($this->constantName($key));
-                } elseif ($key === 'password') {
-                    $values[$key] = Crypto::decrypt((string) $values[$key]);
                 }
             }
             $this->cache = $values;
         }
 
-        return $this->cache;
+        $values = $this->cache;
+        if (!$this->isConstant('password')) {
+            // Le plugin est chargé avant pluggable.php : wp_salt() (donc la clé) n'existe pas
+            // encore au démarrage. On ne déchiffre - et ne mémorise - qu'une fois la clé disponible.
+            if ($this->password === null && Crypto::isAvailable()) {
+                $this->password = Crypto::decrypt((string) $values['password']);
+            }
+            $values['password'] = $this->password ?? '';
+        }
+
+        return $values;
     }
 
     public function get(string $key): mixed
@@ -106,6 +117,7 @@ final class Settings
         }
 
         $this->cache = null;
+        $this->password = null;
 
         return $out;
     }

@@ -10,10 +10,19 @@ final class Crypto
 {
     private const PREFIX = 'sm1:';
 
+    /** La clé dépend de wp_salt(), défini dans pluggable.php (chargé après les plugins). */
+    public static function isAvailable(): bool
+    {
+        return function_exists('wp_salt');
+    }
+
     public static function encrypt(string $plain): string
     {
         if ($plain === '' || !function_exists('sodium_crypto_secretbox')) {
             return $plain;
+        }
+        if (!self::isAvailable()) {
+            throw new \LogicException('SimpleMail : chiffrement impossible avant le chargement de pluggable.php.');
         }
         $nonce = random_bytes(SODIUM_CRYPTO_SECRETBOX_NONCEBYTES);
         $cipher = sodium_crypto_secretbox($plain, $nonce, self::key());
@@ -32,6 +41,9 @@ final class Crypto
         if (!str_starts_with($stored, self::PREFIX)) {
             return $stored; // valeur vide ou non chiffrée
         }
+        if (!self::isAvailable()) {
+            return ''; // clé indisponible : surtout ne pas déchiffrer avec une autre clé
+        }
         $raw = base64_decode(substr($stored, strlen(self::PREFIX)), true);
         if ($raw === false || strlen($raw) <= SODIUM_CRYPTO_SECRETBOX_NONCEBYTES) {
             return '';
@@ -44,8 +56,6 @@ final class Crypto
 
     private static function key(): string
     {
-        $salt = function_exists('wp_salt') ? wp_salt('auth') : (defined('AUTH_KEY') ? AUTH_KEY : 'simplemail');
-
-        return sodium_crypto_generichash('simplemail|' . $salt, '', SODIUM_CRYPTO_SECRETBOX_KEYBYTES);
+        return sodium_crypto_generichash('simplemail|' . wp_salt('auth'), '', SODIUM_CRYPTO_SECRETBOX_KEYBYTES);
     }
 }
