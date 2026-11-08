@@ -17,8 +17,16 @@ final class Plugin
 
         if (is_admin()) {
             (new Admin($settings))->register();
-            (new GithubUpdater(SIMPLEMAIL_FILE, SIMPLEMAIL_GITHUB_REPO))->register();
         }
+
+        // Toujours actif (pas seulement dans l'admin) : la vérification des mises à jour tourne
+        // aussi via WP-Cron (mises à jour auto) et WP-CLI, où is_admin() vaut false. Sinon le
+        // transient update_plugins recalculé hors admin perd l'entrée SimpleMail.
+        (new GithubUpdater(SIMPLEMAIL_FILE, SIMPLEMAIL_GITHUB_REPO, SIMPLEMAIL_VERSION))->register();
+
+        // mu-plugin qui prend le relais de la détection des mises à jour quand les extensions
+        // ne sont pas chargées (ex. WP Workbench / WP-CLI --skip-plugins).
+        MuPlugin::maybeInstall();
 
         if ($settings->isEnabled()) {
             $handler = new WpMailHandler($settings, new TransportFactory($settings));

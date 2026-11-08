@@ -2,11 +2,19 @@
 
 defined('WP_UNINSTALL_PLUGIN') || exit;
 
+// mu-plugin de mises à jour (normalement déjà retiré à la désactivation).
+$simplemail_mu = (defined('WPMU_PLUGIN_DIR') ? WPMU_PLUGIN_DIR : WP_CONTENT_DIR . '/mu-plugins') . '/simplemail-updater.php';
+if (is_file($simplemail_mu)) {
+    @unlink($simplemail_mu);
+}
+
 $simplemail_cleanup = static function (): void {
     global $wpdb;
 
     delete_option('simplemail_settings');
     delete_option('simplemail_last_error');
+    delete_option('simplemail_mu_version');
+    delete_option('simplemail_mu_error');
     delete_transient('simplemail_github_release');
 
     // Messages flash par utilisateur (simplemail_flash_<id>).

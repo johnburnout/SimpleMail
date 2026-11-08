@@ -8,7 +8,7 @@ namespace SimpleMail;
  *
  * Fonctionnement :
  *  - Interroge l'API GitHub "releases/latest" du dépôt (cache 6h en transient).
- *  - Compare le tag de la release (sans le "v") à SIMPLEMAIL_VERSION.
+ *  - Compare le tag de la release (sans le "v") à la version installée.
  *  - Si plus récent, propose comme "package" l'asset .zip attaché à la release
  *    (voir .github/workflows/release.yml, qui construit ce zip avec vendor/ inclus).
  *  - Corrige le nom du dossier extrait pour qu'il corresponde au slug du plugin.
@@ -22,10 +22,16 @@ final class GithubUpdater
     private string $repo;
     private string $pluginFile;
     private string $pluginSlug;
+    private string $version;
 
-    public function __construct(string $pluginMainFile, string $repo)
+    /**
+     * Ne dépend d'aucune constante du plugin : il est aussi chargé seul par le mu-plugin
+     * (voir MuPlugin) quand les extensions ne sont pas chargées (WP-CLI --skip-plugins).
+     */
+    public function __construct(string $pluginMainFile, string $repo, string $version)
     {
         $this->repo = $repo;
+        $this->version = $version;
         $this->pluginFile = plugin_basename($pluginMainFile);
         $this->pluginSlug = dirname($this->pluginFile);
     }
@@ -100,13 +106,13 @@ final class GithubUpdater
 
         $release = $this->fetchRelease();
         $hasUpdate = $release !== null && $release['package'] !== ''
-            && version_compare($release['version'], SIMPLEMAIL_VERSION, '>');
+            && version_compare($release['version'], $this->version, '>');
 
         $item = (object) [
             'id' => 'github.com/' . $this->repo,
             'slug' => $this->pluginSlug,
             'plugin' => $this->pluginFile,
-            'new_version' => $hasUpdate ? $release['version'] : SIMPLEMAIL_VERSION,
+            'new_version' => $hasUpdate ? $release['version'] : $this->version,
             'url' => $release['url'] ?? ('https://github.com/' . $this->repo),
             'package' => $hasUpdate ? $release['package'] : '',
             'tested' => get_bloginfo('version'),

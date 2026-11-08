@@ -72,6 +72,10 @@ releases GitHub du dépôt (au lieu de wordpress.org) :
   **Tableau de bord → Mises à jour**, avec bouton « Mettre à jour maintenant » et détails/changelog.
 - La mise à jour automatique native de WordPress (case à cocher « Mise à jour auto » sur la page
   Extensions) fonctionne aussi, puisque le plugin alimente le même mécanisme.
+- WP-CLI (`wp plugin update simplemail`) fonctionne aussi, y compris **sans charger les extensions**
+  (`--skip-plugins`, utilisé par exemple par WP Workbench de Virtualmin) : à l'activation, SimpleMail
+  installe le mu-plugin `wp-content/mu-plugins/simplemail-updater.php`, qui ne charge que la détection
+  des mises à jour quand SimpleMail lui-même n'est pas chargé. Il est retiré à la désactivation.
 
 Pour publier une nouvelle version :
 
@@ -105,6 +109,7 @@ src/SecureEsmtpTransport.php Transport qui refuse AUTH sur une connexion non chi
 src/WpMailHandler.php   Conversion wp_mail() → Symfony Email et envoi
 src/Admin.php           Page de réglages et e-mail de test
 src/GithubUpdater.php   Vérification/installation des mises à jour via GitHub
+src/MuPlugin.php        Installation du mu-plugin de mises à jour (WP-CLI --skip-plugins)
 .github/workflows/release.yml  Build + publication du zip sur chaque tag
 uninstall.php           Nettoyage des options à la désinstallation
 ```

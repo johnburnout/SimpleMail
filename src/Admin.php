@@ -118,6 +118,10 @@ final class Admin
                 <div class="notice notice-<?php echo esc_attr($flash['type']); ?> is-dismissible"><p><?php echo esc_html($flash['message']); ?></p></div>
             <?php endif; ?>
 
+            <?php if ($muError = MuPlugin::lastError()) : ?>
+                <div class="notice notice-warning"><p><?php echo esc_html(sprintf(__('Mises à jour via WP-CLI sans extensions (ex. WP Workbench) indisponibles : %s', 'simplemail'), $muError)); ?></p></div>
+            <?php endif; ?>
+
             <?php if (!$this->settings->isEnabled()) : ?>
                 <div class="notice notice-warning"><p><?php esc_html_e('L’envoi via SMTP est désactivé : WordPress utilise encore la fonction mail() de PHP.', 'simplemail'); ?></p></div>
             <?php endif; ?>
