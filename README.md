@@ -72,6 +72,9 @@ releases GitHub du dépôt (au lieu de wordpress.org) :
   **Tableau de bord → Mises à jour**, avec bouton « Mettre à jour maintenant » et détails/changelog.
 - La mise à jour automatique native de WordPress (case à cocher « Mise à jour auto » sur la page
   Extensions) fonctionne aussi, puisque le plugin alimente le même mécanisme.
+- Avant installation, le zip téléchargé est vérifié avec l'empreinte SHA-256 que GitHub calcule pour
+  chaque fichier de release (champ `digest` de l'API). Si elle ne correspond pas, ou si elle est
+  indisponible (API GitHub injoignable), la mise à jour est annulée.
 - WP-CLI (`wp plugin update simplemail`) fonctionne aussi, y compris **sans charger les extensions**
   (`--skip-plugins`, utilisé par exemple par WP Workbench de Virtualmin) : à l'activation, SimpleMail
   installe le mu-plugin `wp-content/mu-plugins/simplemail-updater.php`, qui ne charge que la détection

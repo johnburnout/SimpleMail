@@ -11,6 +11,8 @@ namespace SimpleMail;
  *  - Compare le tag de la release (sans le "v") à la version installée.
  *  - Si plus récent, propose comme "package" l'asset .zip attaché à la release
  *    (voir .github/workflows/release.yml, qui construit ce zip avec vendor/ inclus).
+ *  - Vérifie l'empreinte SHA-256 du zip téléchargé (champ "digest" calculé par GitHub) :
+ *    mise à jour refusée si elle ne correspond pas ou si elle est indisponible.
  *  - Corrige le nom du dossier extrait pour qu'il corresponde au slug du plugin.
  */
 final class GithubUpdater
@@ -40,17 +42,18 @@ final class GithubUpdater
     {
         add_filter('pre_set_site_transient_update_plugins', [$this, 'injectUpdate']);
         add_filter('plugins_api', [$this, 'pluginsApi'], 10, 3);
+        add_filter('upgrader_pre_download', [$this, 'verifyDownload'], 10, 4);
         add_filter('upgrader_source_selection', [$this, 'fixSourceDir'], 10, 4);
         add_action('upgrader_process_complete', [$this, 'clearCache'], 10, 0);
         add_action('load-plugins.php', [$this, 'clearCache']);
     }
 
     /**
-     * @return array{version:string,url:string,body:string,package:string}|null
+     * @return array{version:string,url:string,body:string,package:string,sha256:string}|null
      */
-    private function fetchRelease(): ?array
+    private function fetchRelease(bool $force = false): ?array
     {
-        $cached = get_transient(self::CACHE_KEY);
+        $cached = $force ? false : get_transient(self::CACHE_KEY);
         if (is_array($cached)) {
             // Résultat d'échec mis en cache : on n'interroge pas GitHub, mais rien n'est disponible.
             return ($cached['version'] ?? '0') === '0' ? null : $cached;
@@ -84,11 +87,17 @@ final class GithubUpdater
             'url' => $data['html_url'] ?? ('https://github.com/' . $this->repo),
             'body' => (string) ($data['body'] ?? ''),
             'package' => '',
+            'sha256' => '',
         ];
 
         foreach ($data['assets'] ?? [] as $asset) {
             if (($asset['name'] ?? '') === self::ASSET_NAME) {
-                $release['package'] = $asset['browser_download_url'];
+                $release['package'] = (string) ($asset['browser_download_url'] ?? '');
+                // Empreinte calculée par GitHub à la publication, ex. "sha256:ac28…".
+                $digest = strtolower((string) ($asset['digest'] ?? ''));
+                if (preg_match('/^sha256:([0-9a-f]{64})$/', $digest, $m)) {
+                    $release['sha256'] = $m[1];
+                }
                 break;
             }
         }
@@ -162,6 +171,54 @@ final class GithubUpdater
             ],
             'download_link' => $release['package'],
         ];
+    }
+
+    /**
+     * Télécharge nous-mêmes le zip de nos releases pour en vérifier l'empreinte SHA-256
+     * avant que WordPress ne l'installe.
+     *
+     * @param false|string|\WP_Error $reply
+     * @return false|string|\WP_Error Chemin du fichier vérifié, ou WP_Error.
+     */
+    public function verifyDownload($reply, $package, $upgrader = null, $hookExtra = [])
+    {
+        $prefix = sprintf('https://github.com/%s/releases/download/', $this->repo);
+        if ($reply !== false || !is_string($package) || !str_starts_with($package, $prefix)) {
+            return $reply; // pas un paquet SimpleMail
+        }
+
+        $release = $this->fetchRelease();
+        if ($release === null || $release['package'] !== $package || ($release['sha256'] ?? '') === '') {
+            // Cache absent, périmé ou antérieur à la vérification : on redemande à GitHub.
+            $release = $this->fetchRelease(true);
+        }
+        if ($release === null || $release['package'] !== $package || ($release['sha256'] ?? '') === '') {
+            return new \WP_Error(
+                'simplemail_no_checksum',
+                'SimpleMail : empreinte SHA-256 du paquet indisponible (API GitHub injoignable ?). Mise à jour annulée, réessayez plus tard.'
+            );
+        }
+
+        if ($upgrader instanceof \WP_Upgrader && isset($upgrader->skin)) {
+            $upgrader->skin->feedback('downloading_package', $package);
+        }
+
+        $file = download_url($package, 300);
+        if (is_wp_error($file)) {
+            return $file;
+        }
+
+        $actual = (string) hash_file('sha256', $file);
+        if (!hash_equals($release['sha256'], $actual)) {
+            @unlink($file);
+
+            return new \WP_Error(
+                'simplemail_checksum_mismatch',
+                sprintf('SimpleMail : empreinte SHA-256 incorrecte (attendue %s, obtenue %s). Paquet rejeté.', $release['sha256'], $actual)
+            );
+        }
+
+        return $file;
     }
 
     /**
