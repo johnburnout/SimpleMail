@@ -40,8 +40,21 @@ Sans constante, le mot de passe est stocké **chiffré** en base (libsodium, cl�
 
 - Respecte les filtres `wp_mail`, `wp_mail_from`, `wp_mail_from_name`, `wp_mail_content_type`, `wp_mail_charset`
   et les actions `wp_mail_succeeded` / `wp_mail_failed`.
-- Gère les en-têtes `From`, `Cc`, `Bcc`, `Reply-To`, `Content-Type` et les en-têtes personnalisés, ainsi que les pièces jointes
-  (y compris `['nom.pdf' => '/chemin/fichier.pdf']`).
+- Gère les en-têtes `From`, `Cc`, `Bcc`, `Reply-To`, `Return-Path`, `Sender`, `Content-Type` et les en-têtes personnalisés,
+  ainsi que les pièces jointes (y compris `['nom.pdf' => '/chemin/fichier.pdf']`).
+- Corps `multipart/alternative` : si un `boundary` est fourni, les parties texte et HTML sont extraites ; sinon le message
+  est envoyé en HTML avec une version texte générée.
+- Les adresses invalides (destinataires, Cc, Bcc…) sont ignorées au lieu de bloquer tout l'envoi.
+
+## Sécurité de la connexion
+
+En mode STARTTLS, la connexion n'est chiffrée que si le serveur annonce STARTTLS. Si ce n'est pas le cas,
+SimpleMail **refuse l'authentification** plutôt que d'envoyer l'identifiant et le mot de passe en clair.
+Pour un relais local de confiance, on peut lever cette protection :
+
+```php
+add_filter('simplemail_allow_insecure_auth', '__return_true');
+```
 - L'action `phpmailer_init` n'est **pas** déclenchée (PHPMailer n'est plus utilisé).
 
 ## Mises à jour automatiques (GitHub)
@@ -78,6 +91,7 @@ exigeant un token pour un dépôt privé).
 
 - `simplemail_email` (filtre) : modifier l'objet `Symfony\Component\Mime\Email` avant envoi.
 - `simplemail_transport` (filtre) : modifier le `EsmtpTransport` (ex. `setLocalDomain()`).
+- `simplemail_allow_insecure_auth` (filtre, défaut `false`) : autoriser l'authentification sans chiffrement.
 
 ## Structure
 
@@ -87,6 +101,7 @@ src/Plugin.php          Amorçage, branchement sur pre_wp_mail
 src/Settings.php        Lecture/validation des réglages (+ constantes wp-config)
 src/Crypto.php          Chiffrement du mot de passe
 src/TransportFactory.php Création du transport SMTP Symfony
+src/SecureEsmtpTransport.php Transport qui refuse AUTH sur une connexion non chiffrée
 src/WpMailHandler.php   Conversion wp_mail() → Symfony Email et envoi
 src/Admin.php           Page de réglages et e-mail de test
 src/GithubUpdater.php   Vérification/installation des mises à jour via GitHub

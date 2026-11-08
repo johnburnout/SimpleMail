@@ -17,7 +17,10 @@ final class TransportFactory
 
         // tls = true => connexion SSL implicite (SMTPS, port 465 en général).
         // Sinon STARTTLS est utilisé automatiquement si le serveur le propose.
-        $transport = new EsmtpTransport((string) $s['host'], (int) $s['port'], $s['encryption'] === 'ssl');
+        $transport = new SecureEsmtpTransport((string) $s['host'], (int) $s['port'], $s['encryption'] === 'ssl');
+
+        /** Autorise l'authentification sur une connexion non chiffrée (déconseillé, ex. relais local). */
+        $transport->setAllowInsecureAuth((bool) apply_filters('simplemail_allow_insecure_auth', false, $s));
 
         if (!empty($s['auth'])) {
             $transport->setUsername((string) $s['username']);

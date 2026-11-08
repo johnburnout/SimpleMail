@@ -7,6 +7,7 @@ final class Admin
     private const PAGE = 'simplemail';
     private const GROUP = 'simplemail';
     private const TEST_ACTION = 'simplemail_test';
+    private const CLEAR_ERROR_ACTION = 'simplemail_clear_error';
 
     public function __construct(private readonly Settings $settings)
     {
@@ -17,6 +18,7 @@ final class Admin
         add_action('admin_menu', [$this, 'menu']);
         add_action('admin_init', [$this, 'registerSetting']);
         add_action('admin_post_' . self::TEST_ACTION, [$this, 'sendTest']);
+        add_action('admin_post_' . self::CLEAR_ERROR_ACTION, [$this, 'clearError']);
         add_filter('plugin_action_links_' . plugin_basename(SIMPLEMAIL_FILE), [$this, 'actionLinks']);
     }
 
@@ -77,6 +79,19 @@ final class Admin
         } else {
             $this->flash('error', sprintf(__('Échec de l’envoi : %s', 'simplemail'), $error ?? 'erreur inconnue'));
         }
+
+        wp_safe_redirect($this->pageUrl());
+        exit;
+    }
+
+    public function clearError(): void
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die(esc_html__('Accès refusé.', 'simplemail'), 403);
+        }
+        check_admin_referer(self::CLEAR_ERROR_ACTION);
+
+        delete_option(WpMailHandler::LAST_ERROR_OPTION);
 
         wp_safe_redirect($this->pageUrl());
         exit;
@@ -186,6 +201,11 @@ final class Admin
                 <p><code><?php echo esc_html(wp_date('Y-m-d H:i:s', (int) $lastError['time'])); ?></code>
                     — <?php echo esc_html($lastError['to']); ?> — <?php echo esc_html($lastError['subject']); ?></p>
                 <pre style="white-space:pre-wrap;background:#fff;padding:10px;border:1px solid #ccd0d4;"><?php echo esc_html($lastError['message']); ?></pre>
+                <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                    <input type="hidden" name="action" value="<?php echo esc_attr(self::CLEAR_ERROR_ACTION); ?>">
+                    <?php wp_nonce_field(self::CLEAR_ERROR_ACTION); ?>
+                    <?php submit_button(__('Effacer', 'simplemail'), 'secondary', 'submit', false); ?>
+                </form>
             <?php endif; ?>
         </div>
         <?php

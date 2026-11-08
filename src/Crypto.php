@@ -21,6 +21,12 @@ final class Crypto
         return self::PREFIX . base64_encode($nonce . $cipher);
     }
 
+    /** Vrai si la valeur est un mot de passe chiffré valide pour la clé actuelle. */
+    public static function isEncrypted(string $value): bool
+    {
+        return str_starts_with($value, self::PREFIX) && self::decrypt($value) !== '';
+    }
+
     public static function decrypt(string $stored): string
     {
         if (!str_starts_with($stored, self::PREFIX)) {

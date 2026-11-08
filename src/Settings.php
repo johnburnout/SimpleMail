@@ -28,25 +28,25 @@ final class Settings
         'timeout'     => 15,
     ];
 
+    /** Valeurs résolues (constantes appliquées, mot de passe déchiffré) : calculées une fois. */
     private ?array $cache = null;
 
     public function all(): array
     {
         if ($this->cache === null) {
             $stored = get_option(self::OPTION, []);
-            $this->cache = array_merge(self::DEFAULTS, is_array($stored) ? $stored : []);
-        }
-
-        $values = $this->cache;
-        foreach (array_keys(self::DEFAULTS) as $key) {
-            if ($this->isConstant($key)) {
-                $values[$key] = constant($this->constantName($key));
-            } elseif ($key === 'password') {
-                $values[$key] = Crypto::decrypt((string) $values[$key]);
+            $values = array_merge(self::DEFAULTS, is_array($stored) ? $stored : []);
+            foreach (array_keys(self::DEFAULTS) as $key) {
+                if ($this->isConstant($key)) {
+                    $values[$key] = constant($this->constantName($key));
+                } elseif ($key === 'password') {
+                    $values[$key] = Crypto::decrypt((string) $values[$key]);
+                }
             }
+            $this->cache = $values;
         }
 
-        return $values;
+        return $this->cache;
     }
 
     public function get(string $key): mixed
@@ -91,11 +91,16 @@ final class Settings
         ];
 
         // Mot de passe : vide = on garde l'existant, case "effacer" = on supprime.
+        // Les données arrivent déjà dé-slashées par options.php : pas de wp_unslash() ici.
         $password = (string) ($input['password'] ?? '');
         if (!empty($input['password_clear'])) {
             $out['password'] = '';
+        } elseif (Crypto::isEncrypted($password)) {
+            // Valeur déjà chiffrée : sanitize() peut être appelé deux fois
+            // (update_option() -> add_option() au premier enregistrement).
+            $out['password'] = $password;
         } elseif ($password !== '') {
-            $out['password'] = Crypto::encrypt(wp_unslash($password));
+            $out['password'] = Crypto::encrypt($password);
         } else {
             $out['password'] = $current['password'] ?? '';
         }

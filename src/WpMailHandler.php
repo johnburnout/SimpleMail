@@ -2,8 +2,10 @@
 
 namespace SimpleMail;
 
+use Symfony\Component\Mailer\Transport\Smtp\EsmtpTransport;
 use Symfony\Component\Mime\Address;
 use Symfony\Component\Mime\Email;
+use Symfony\Component\Mime\Exception\RfcComplianceException;
 
 /**
  * Remplace l'envoi de wp_mail() via le filtre `pre_wp_mail`.
@@ -18,6 +20,9 @@ final class WpMailHandler
     public const LAST_ERROR_OPTION = 'simplemail_last_error';
 
     private const SKIPPED_HEADERS = ['mime-version', 'content-transfer-encoding', 'x-mailer', 'date', 'message-id'];
+
+    /** Transport réutilisé pour tous les e-mails d'une même requête (une seule connexion SMTP). */
+    private ?EsmtpTransport $transport = null;
 
     public function __construct(
         private readonly Settings $settings,
@@ -47,8 +52,10 @@ final class WpMailHandler
             $email = $this->buildEmail($mailData);
             $email = apply_filters('simplemail_email', $email, $mailData);
 
-            $this->transportFactory->create()->send($email);
+            $this->transport ??= $this->transportFactory->create();
+            $this->transport->send($email);
         } catch (\Throwable $e) {
+            $this->resetTransport();
             $mailData['phpmailer_exception_code'] = $e->getCode();
             update_option(self::LAST_ERROR_OPTION, [
                 'time'    => time(),
@@ -107,6 +114,12 @@ final class WpMailHandler
         foreach ($parsed['reply_to'] as $address) {
             $email->addReplyTo($address);
         }
+        if ($parsed['return_path']) {
+            $email->returnPath($parsed['return_path']);
+        }
+        if ($parsed['sender']) {
+            $email->sender($parsed['sender']);
+        }
 
         // --- Contenu ----------------------------------------------------
         $contentType = apply_filters('wp_mail_content_type', $parsed['content_type'] ?: 'text/plain');
@@ -117,9 +130,20 @@ final class WpMailHandler
         if (stripos((string) $contentType, 'text/html') !== false) {
             $email->html($data['message'], $charset);
         } elseif (stripos((string) $contentType, 'multipart/alternative') !== false) {
-            // Ex. WooCommerce en mode « multipart » : HTML + version texte générée.
-            $email->html($data['message'], $charset);
-            $email->text(trim(html_entity_decode(wp_strip_all_tags($data['message']), ENT_QUOTES, $charset)), $charset);
+            $parts = $parsed['boundary'] !== '' ? $this->splitAlternative($data['message'], $parsed['boundary']) : [];
+            if ($parts !== []) {
+                // Corps MIME déjà construit par l'appelant (cas prévu par wp_mail() avec boundary).
+                if (isset($parts['text'])) {
+                    $email->text($parts['text'][0], $parts['text'][1] ?: $charset);
+                }
+                if (isset($parts['html'])) {
+                    $email->html($parts['html'][0], $parts['html'][1] ?: $charset);
+                }
+            } else {
+                // Ex. WooCommerce en mode « multipart » : HTML + version texte générée.
+                $email->html($data['message'], $charset);
+                $email->text(trim(html_entity_decode(wp_strip_all_tags($data['message']), ENT_QUOTES, $charset)), $charset);
+            }
         } else {
             $email->text($data['message'], $charset);
         }
@@ -149,13 +173,13 @@ final class WpMailHandler
     }
 
     /**
-     * @return array{from_email:string, from_name:string, content_type:string, charset:string, cc:Address[], bcc:Address[], reply_to:Address[], custom:array<int, array{0:string,1:string}>}
+     * @return array{from_email:string, from_name:string, content_type:string, charset:string, boundary:string, cc:Address[], bcc:Address[], reply_to:Address[], return_path:?Address, sender:?Address, custom:array<int, array{0:string,1:string}>}
      */
     private function parseHeaders(mixed $headers): array
     {
         $out = [
-            'from_email' => '', 'from_name' => '', 'content_type' => '', 'charset' => '',
-            'cc' => [], 'bcc' => [], 'reply_to' => [], 'custom' => [],
+            'from_email' => '', 'from_name' => '', 'content_type' => '', 'charset' => '', 'boundary' => '',
+            'cc' => [], 'bcc' => [], 'reply_to' => [], 'return_path' => null, 'sender' => null, 'custom' => [],
         ];
 
         if (empty($headers)) {
@@ -191,6 +215,8 @@ final class WpMailHandler
                     foreach ($parts as $part) {
                         if (stripos($part, 'charset=') === 0) {
                             $out['charset'] = trim(substr($part, 8), " \"'");
+                        } elseif (stripos($part, 'boundary=') === 0) {
+                            $out['boundary'] = trim(substr($part, 9), " \"'");
                         }
                     }
                     break;
@@ -205,6 +231,20 @@ final class WpMailHandler
 
                 case 'reply-to':
                     array_push($out['reply_to'], ...$this->parseAddressList($value));
+                    break;
+
+                // Symfony impose un type d'en-tête précis pour ceux-ci :
+                // addTextHeader() lèverait une LogicException et ferait échouer l'envoi.
+                case 'return-path':
+                    $out['return_path'] = $this->parseAddress($value);
+                    break;
+
+                case 'sender':
+                    $out['sender'] = $this->parseAddress($value);
+                    break;
+
+                case 'to':
+                    // Les destinataires viennent du paramètre $to de wp_mail().
                     break;
 
                 default:
@@ -249,7 +289,78 @@ final class WpMailHandler
             $value = trim($m[2]);
         }
 
-        return new Address($value, $name);
+        try {
+            return new Address($value, $name);
+        } catch (RfcComplianceException) {
+            // Comme PHPMailer : une adresse invalide est ignorée au lieu de bloquer tout l'envoi.
+            return null;
+        }
+    }
+
+    /**
+     * Découpe un corps multipart/alternative brut en parties texte et HTML.
+     *
+     * @return array{text?: array{0:string,1:string}, html?: array{0:string,1:string}}
+     */
+    private function splitAlternative(string $body, string $boundary): array
+    {
+        $body = str_replace("\r\n", "\n", $body);
+        $chunks = explode('--' . $boundary, $body);
+        array_shift($chunks); // préambule
+
+        $out = [];
+        foreach ($chunks as $chunk) {
+            if (str_starts_with($chunk, '--')) {
+                break; // délimiteur de fin
+            }
+            $chunk = ltrim($chunk, "\n");
+            [$rawHeaders, $content] = array_pad(explode("\n\n", $chunk, 2), 2, '');
+
+            $type = 'text/plain';
+            $charset = '';
+            $encoding = '';
+            foreach (explode("\n", $rawHeaders) as $line) {
+                if (!str_contains($line, ':')) {
+                    continue;
+                }
+                [$name, $value] = array_map('trim', explode(':', $line, 2));
+                if (strcasecmp($name, 'Content-Type') === 0) {
+                    $params = array_map('trim', explode(';', $value));
+                    $type = strtolower(array_shift($params));
+                    foreach ($params as $param) {
+                        if (stripos($param, 'charset=') === 0) {
+                            $charset = trim(substr($param, 8), " \"'");
+                        }
+                    }
+                } elseif (strcasecmp($name, 'Content-Transfer-Encoding') === 0) {
+                    $encoding = strtolower($value);
+                }
+            }
+
+            $content = rtrim($content, "\n");
+            if ($encoding === 'base64') {
+                $content = (string) base64_decode($content);
+            } elseif ($encoding === 'quoted-printable') {
+                $content = quoted_printable_decode($content);
+            }
+
+            if ($type === 'text/plain') {
+                $out['text'] = [$content, $charset];
+            } elseif ($type === 'text/html') {
+                $out['html'] = [$content, $charset];
+            }
+        }
+
+        return $out;
+    }
+
+    private function resetTransport(): void
+    {
+        try {
+            $this->transport?->stop();
+        } catch (\Throwable) {
+        }
+        $this->transport = null;
     }
 
     private function defaultFromEmail(): string

@@ -46,7 +46,8 @@ final class GithubUpdater
     {
         $cached = get_transient(self::CACHE_KEY);
         if (is_array($cached)) {
-            return $cached;
+            // Résultat d'échec mis en cache : on n'interroge pas GitHub, mais rien n'est disponible.
+            return ($cached['version'] ?? '0') === '0' ? null : $cached;
         }
 
         $response = wp_remote_get(
@@ -68,6 +69,7 @@ final class GithubUpdater
 
         $data = json_decode(wp_remote_retrieve_body($response), true);
         if (!is_array($data) || empty($data['tag_name'])) {
+            set_transient(self::CACHE_KEY, ['version' => '0', 'url' => '', 'body' => '', 'package' => ''], 15 * MINUTE_IN_SECONDS);
             return null;
         }
 
@@ -97,21 +99,16 @@ final class GithubUpdater
         }
 
         $release = $this->fetchRelease();
-        if ($release === null || $release['package'] === '' || $release['version'] === '0') {
-            return $transient;
-        }
-
-        if (!version_compare($release['version'], SIMPLEMAIL_VERSION, '>')) {
-            return $transient;
-        }
+        $hasUpdate = $release !== null && $release['package'] !== ''
+            && version_compare($release['version'], SIMPLEMAIL_VERSION, '>');
 
         $item = (object) [
             'id' => 'github.com/' . $this->repo,
             'slug' => $this->pluginSlug,
             'plugin' => $this->pluginFile,
-            'new_version' => $release['version'],
-            'url' => $release['url'],
-            'package' => $release['package'],
+            'new_version' => $hasUpdate ? $release['version'] : SIMPLEMAIL_VERSION,
+            'url' => $release['url'] ?? ('https://github.com/' . $this->repo),
+            'package' => $hasUpdate ? $release['package'] : '',
             'tested' => get_bloginfo('version'),
             'requires' => '5.7',
             'requires_php' => '8.1',
@@ -119,8 +116,14 @@ final class GithubUpdater
             'banners' => [],
         ];
 
-        $transient->response[$this->pluginFile] = $item;
-        unset($transient->no_update[$this->pluginFile]);
+        if ($hasUpdate) {
+            $transient->response[$this->pluginFile] = $item;
+            unset($transient->no_update[$this->pluginFile]);
+        } else {
+            // Présent dans no_update : WordPress affiche alors le lien « Activer les mises à jour auto ».
+            $transient->no_update[$this->pluginFile] = $item;
+            unset($transient->response[$this->pluginFile]);
+        }
 
         return $transient;
     }
@@ -161,9 +164,9 @@ final class GithubUpdater
      *
      * @return string|\WP_Error
      */
-    public function fixSourceDir(string $source, string $remoteSource, $upgrader, $hookExtra = [])
+    public function fixSourceDir($source, $remoteSource, $upgrader, $hookExtra = [])
     {
-        if (empty($hookExtra['plugin']) || $hookExtra['plugin'] !== $this->pluginFile) {
+        if (!is_string($source) || empty($hookExtra['plugin']) || $hookExtra['plugin'] !== $this->pluginFile) {
             return $source;
         }
 
